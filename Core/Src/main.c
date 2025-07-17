@@ -41,30 +41,16 @@
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
 
-TIM_HandleTypeDef htim1;
-TIM_HandleTypeDef htim3;
-
 /* USER CODE BEGIN PV */
 // Глобальные переменные
-volatile uint32_t pulse_count = 0;
-volatile uint32_t frequency_rpm = 0;
+volatile uint16_t pulse_count = 0;
+volatile double frequency_rpm = 0.0;
 volatile uint8_t digits[4] = {0};
-volatile uint8_t display_updated = 0;
-// Паттерны для общего катода (активный уровень 1)
-/*const uint8_t digit_pattern[10] = {
-    0x3F, // 0 - 00111111
-    0x06, // 1 - 00000110
-    0x5B, // 2 - 01011011
-    0x4F, // 3 - 01001111
-    0x66, // 4 - 01100110
-    0x6D, // 5 - 01101101
-    0x7D, // 6 - 01111101
-    0x07, // 7 - 00000111
-    0x7F, // 8 - 01111111
-    0x6F  // 9 - 01101111
-};
-*/
-//исправленные патерны цифр для этой платы
+const uint8_t period_number = 3;
+volatile uint32_t current_time = 0;
+volatile uint32_t previous_time = 0;
+
+//исправленные паттерны цифр для этой платы (общий катод)
 const uint8_t digit_pattern[10] = {
     0x7B, // 0 - 01111011
     0x0A, // 1 - 00001010
@@ -83,15 +69,11 @@ const uint8_t digit_pattern[10] = {
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
-static void MX_TIM3_Init(void);
-static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 void Update_Display(void);
 void EXTI4_15_IRQHandler(void);
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
-//void Start_Test_Signal(void);
+void Frequency_calculation(void);
 void Test_Segments(void);
-void Test_Segments_2(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -129,18 +111,12 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_SPI1_Init();
-  MX_TIM3_Init();
-  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_NVIC_SetPriority(EXTI4_15_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
-  HAL_NVIC_EnableIRQ(TIM3_IRQn);
-  HAL_TIM_Base_Start_IT(&htim3);
-//  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET); OE = 0, switch on all of register (уже есть в инициализации)
+
   Test_Segments();
-//  Test_Segments_2();
-//  Start_Test_Signal();
 
   // Инициализация дисплея (все нули)
   digits[0] = 0;
@@ -148,18 +124,17 @@ int main(void)
   digits[2] = 0;
   digits[3] = 0;
   Update_Display();
-  HAL_Delay(2000);
+  HAL_Delay(1000);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if (display_updated) {
+	  if (pulse_count >= period_number) {
+		  Frequency_calculation();
 		  Update_Display();
-		  display_updated = 0;
 	  }
-	  HAL_Delay(200);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -247,127 +222,6 @@ static void MX_SPI1_Init(void)
 }
 
 /**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM1_Init(void)
-{
-
-  /* USER CODE BEGIN TIM1_Init 0 */
-
-  /* USER CODE END TIM1_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
-
-  /* USER CODE BEGIN TIM1_Init 1 */
-
-  /* USER CODE END TIM1_Init 1 */
-  htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 4799;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 999;
-  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim1.Init.RepetitionCounter = 0;
-  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_OC_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_TIMING;
-  sConfigOC.Pulse = 500;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  if (HAL_TIM_OC_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 0;
-  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM1_Init 2 */
-
-  /* USER CODE END TIM1_Init 2 */
-  HAL_TIM_MspPostInit(&htim1);
-
-}
-
-/**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM3_Init(void)
-{
-
-  /* USER CODE BEGIN TIM3_Init 0 */
-
-  /* USER CODE END TIM3_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM3_Init 1 */
-
-  /* USER CODE END TIM3_Init 1 */
-  htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 47999;
-  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 999;
-  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM3_Init 2 */
-  // Настройка прерывания
-  HAL_NVIC_SetPriority(TIM3_IRQn, 1, 0);
-  /* USER CODE END TIM3_Init 2 */
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -429,28 +283,6 @@ void EXTI4_15_IRQHandler(void) {
     }
 }
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-    if (htim->Instance == TIM3) {
-        // Расчет частоты в об/мин
-    	__disable_irq();
-        uint32_t current_count = pulse_count;  		// Фиксация значения
-        pulse_count = 0;                       		// Сброс счетчика
-        __enable_irq();
-        frequency_rpm = current_count * 60;
-
-        // Ограничение значения (0-9999)
-        frequency_rpm=(frequency_rpm>9999)?9999:frequency_rpm;
-
-        // Преобразование в цифры
-        digits[0] = frequency_rpm / 1000;        	// Тысячи
-        digits[1] = (frequency_rpm % 1000) / 100; 	// Сотни
-        digits[2] = (frequency_rpm % 100) / 10;   	// Десятки
-        digits[3] = frequency_rpm % 10;           	// Единицы
-
-        display_updated = 1;                    	// Флаг обновления дисплея
-    }
-}
-
 // Тест сегментов
 void Test_Segments(void) {
     uint8_t test_data[4] = {0};
@@ -474,25 +306,29 @@ void Test_Segments(void) {
         HAL_Delay(500);
     }
 }
-//псевдобегущая строка
-void Test_Segments_2(void) {
-	uint8_t count = 0;
-	while (count < 10) {
-		for (uint8_t i = 0; i < 7; i++) {
-			for (uint8_t j = 4 ; j > 0; j--) {
-				digits[j-1]=i-j+4;
-			}
-			Update_Display();
-			HAL_Delay(500);
-			if (i == 6) {i = 0;}
-		}
-	count++;
-	}
+
+//Функция расчета частоты
+void Frequency_calculation(void){
+/*	__disable_irq();
+    uint8_t current_count = pulse_count;  		// Фиксация значения
+    pulse_count = 0;                       		// Сброс счетчика
+    __enable_irq();
+*/
+    previous_time = current_time;
+    current_time = HAL_GetTick();
+    frequency_rpm = 60000.0 / ((current_time - previous_time) / pulse_count);
+    pulse_count = 0;
+
+    // Ограничение значения (0-9999)
+    frequency_rpm = (frequency_rpm > 9999) ? 9999 : frequency_rpm;
+
+    // Преобразование в цифры
+    digits[0] = frequency_rpm / 1000;        	// Тысячи
+    digits[1] = ((uint16_t)frequency_rpm % 1000) / 100; 	// Сотни
+    digits[2] = ((uint16_t)frequency_rpm % 100) / 10;   	// Десятки
+    digits[3] = (uint16_t)frequency_rpm % 10;           	// Единицы
+
 }
-
-
-
-
 
 /* USER CODE END 4 */
 

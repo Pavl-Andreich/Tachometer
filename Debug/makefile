@@ -60,8 +60,8 @@ all: main-build
 main-build: Tachometer.elf secondary-outputs
 
 # Tool invocations
-Tachometer.elf Tachometer.map: $(OBJS) $(USER_OBJS) C:\Users\pasha\STM32CubeIDE\workspace_1.18.1\Tachometer\STM32F030K6TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Tachometer.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0 -T"C:\Users\pasha\STM32CubeIDE\workspace_1.18.1\Tachometer\STM32F030K6TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Tachometer.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Tachometer.elf Tachometer.map: $(OBJS) $(USER_OBJS) C:\Users\pasha\STM32CubeIDE\workspace_1.19.0\Tachometer\STM32F030K6TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Tachometer.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0 -T"C:\Users\pasha\STM32CubeIDE\workspace_1.19.0\Tachometer\STM32F030K6TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Tachometer.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
