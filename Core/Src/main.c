@@ -44,11 +44,14 @@ SPI_HandleTypeDef hspi1;
 /* USER CODE BEGIN PV */
 // Глобальные переменные
 volatile uint16_t pulse_count = 0;
-volatile double frequency_rpm = 0.0;
 volatile uint8_t digits[4] = {0};
 const uint8_t period_number = 3;
 volatile uint32_t current_time = 0;
 volatile uint32_t previous_time = 0;
+volatile double filtered_rpm = 0.0;      // Отфильтрованное значение RPM
+const float alpha = 0.2;                 // Коэффициент фильтрации (0.1-0.3)
+const uint16_t timeout_ms = 2000;
+volatile uint32_t last_pulse_time = 0;
 
 //исправленные паттерны цифр для этой платы (общий катод)
 const uint8_t digit_pattern[10] = {
@@ -134,6 +137,15 @@ int main(void)
 	  if (pulse_count >= period_number) {
 		  Frequency_calculation();
 		  Update_Display();
+	  }
+	  else if (last_pulse_time > 0 && (HAL_GetTick() - last_pulse_time) > timeout_ms) {
+	          filtered_rpm = 0.0;
+	          digits[0] = 0;
+	          digits[1] = 0;
+	          digits[2] = 0;
+	          digits[3] = 0;
+	          Update_Display();
+	          last_pulse_time = 0;  // Сброс флага таймаута
 	  }
     /* USER CODE END WHILE */
 
@@ -279,6 +291,7 @@ void Update_Display(void) {
 void EXTI4_15_IRQHandler(void) {
     if(__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_7) != RESET) {
         pulse_count++;
+        last_pulse_time = HAL_GetTick();
         __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
     }
 }
@@ -308,26 +321,29 @@ void Test_Segments(void) {
 }
 
 //Функция расчета частоты
-void Frequency_calculation(void){
-/*	__disable_irq();
-    uint8_t current_count = pulse_count;  		// Фиксация значения
-    pulse_count = 0;                       		// Сброс счетчика
-    __enable_irq();
-*/
+void Frequency_calculation(void) {
     previous_time = current_time;
     current_time = HAL_GetTick();
-    frequency_rpm = 60000.0 / ((current_time - previous_time) / pulse_count);
+
+    // Расчет мгновенного значения RPM
+    double frequency_rpm = 60000.0 / ((current_time - previous_time) / pulse_count);
     pulse_count = 0;
 
+    // Применение EMA-фильтра
+    if (filtered_rpm == 0.0) {
+        filtered_rpm = frequency_rpm;  // Инициализация при первом измерении
+    } else {
+        filtered_rpm = alpha * frequency_rpm + (1 - alpha) * filtered_rpm;
+    }
+
     // Ограничение значения (0-9999)
-    frequency_rpm = (frequency_rpm > 9999) ? 9999 : frequency_rpm;
+    uint16_t display_rpm = (filtered_rpm > 9999) ? 9999 : (uint16_t)filtered_rpm;
 
     // Преобразование в цифры
-    digits[0] = frequency_rpm / 1000;        	// Тысячи
-    digits[1] = ((uint16_t)frequency_rpm % 1000) / 100; 	// Сотни
-    digits[2] = ((uint16_t)frequency_rpm % 100) / 10;   	// Десятки
-    digits[3] = (uint16_t)frequency_rpm % 10;           	// Единицы
-
+    digits[0] = display_rpm / 1000;          // Тысячи
+    digits[1] = (display_rpm % 1000) / 100;  // Сотни
+    digits[2] = (display_rpm % 100) / 10;    // Десятки
+    digits[3] = display_rpm % 10;            // Единицы
 }
 
 /* USER CODE END 4 */
